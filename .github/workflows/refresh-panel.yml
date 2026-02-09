@@ -29,9 +29,9 @@ jobs:
             echo "Tentativa $i - HTTP Status: $CODE"
             
             case "$CODE" in
-              200|301|302) echo "✓ Sucesso: cache limpo."; exit 0 ;;
-              503|502|000) echo "Aguardando 25s (Render acordando)..."; sleep 25 ;;
-              *) echo "::warning::Status $CODE - Verifique REFRESH_TOKEN e URL nos Secrets"; exit 1 ;;
+              200|301|302|307|308) echo "Sucesso: cache limpo."; exit 0 ;;
+              502|503|504|000) echo "Aguardando 25s (Render acordando)..."; sleep 25 ;;
+              *) echo "::warning::Status $CODE - Verifique REFRESH_TOKEN no Render e URL nos Secrets"; exit 1 ;;
             esac
           done
           
