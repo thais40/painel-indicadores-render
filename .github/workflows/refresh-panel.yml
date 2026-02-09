@@ -1,0 +1,16 @@
+# Atualiza o painel automaticamente todo dia às 7:00 (horário de Brasília)
+name: Atualizar Painel Diário
+
+on:
+  schedule:
+    - cron: '0 10 * * *'  # 10:00 UTC = 7:00 BRT
+  workflow_dispatch:  # Permite executar manualmente
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acordar painel e limpar cache
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.RENDER_PANEL_URL }}?refresh=${{ secrets.REFRESH_TOKEN }}"

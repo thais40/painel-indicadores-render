@@ -15,12 +15,15 @@ Painel de Indicadores extraindo dados do Jira (Nuvemshop).
 
 Após o deploy, o painel ficará disponível em uma URL como `https://painel-indicadores-jira.onrender.com`
 
-## Atualização automática diária
+## Atualização automática diária (7h)
 
-Para atualizar os dados automaticamente em um horário fixo (ex.: todo dia às 8h):
+O painel é atualizado automaticamente todo dia às **7:00** (horário de Brasília) via GitHub Actions.
 
-1. **Configure REFRESH_TOKEN** no Render (Environment): crie um token secreto (ex.: `meu_token_123`).
-2. Acesse [cron-job.org](https://cron-job.org) (gratuito) e crie um cron job:
-   - **URL:** `https://SEU-PAINEL.onrender.com/?refresh=meu_token_123`
-   - **Horário:** defina o horário desejado (ex.: 8:00 diariamente)
-   - O serviço acordará o painel e limpará o cache; o próximo visitante verá dados atualizados.
+### Configuração
+
+1. **Render:** adicione a variável `REFRESH_TOKEN` (crie um token secreto).
+2. **GitHub:** em Settings → Secrets and variables → Actions, adicione:
+   - `REFRESH_TOKEN` = mesmo valor do Render
+   - `RENDER_PANEL_URL` = URL do painel (ex.: `https://painel-indicadores-jira.onrender.com`)
+
+Veja detalhes em [CONFIGURAR_REFRESH_7H.md](CONFIGURAR_REFRESH_7H.md).
