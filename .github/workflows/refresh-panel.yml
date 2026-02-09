@@ -9,28 +9,32 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
     steps:
       - name: Acordar painel e limpar cache
         run: |
-          echo "Aguardando Render acordar (pode levar até 90s no free tier)..."
+          set -e
           URL="${{ secrets.RENDER_PANEL_URL }}"
           TOKEN="${{ secrets.REFRESH_TOKEN }}"
-          if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
-            echo "Erro: configure REFRESH_TOKEN e RENDER_PANEL_URL nos Secrets do GitHub"
+          
+          if [ -z "$URL" ] || [ "$URL" = "" ]; then
+            echo "::error::RENDER_PANEL_URL não configurado. Vá em Settings > Secrets > Actions e adicione."
             exit 1
           fi
-          # 1ª tentativa: acordar o Render
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 120 "${URL}?refresh=${TOKEN}" || echo "000")
-          echo "HTTP Status (1ª tentativa): $CODE"
-          if [ "$CODE" != "200" ]; then
-            echo "Aguardando 15s e tentando novamente..."
-            sleep 15
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 120 "${URL}?refresh=${TOKEN}" || echo "000")
-            echo "HTTP Status (2ª tentativa): $CODE"
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "" ]; then
+            echo "::error::REFRESH_TOKEN não configurado. Vá em Settings > Secrets > Actions e adicione."
+            exit 1
           fi
+          
+          URL="${URL%/}"
+          FULL_URL="${URL}?refresh=${TOKEN}"
+          echo "Chamando painel (aguarde até 2 min se Render estiver dormindo)..."
+          
+          CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" -L --max-time 120 "$FULL_URL" || echo "000")
+          echo "HTTP Status: $CODE"
+          
           if [ "$CODE" = "200" ]; then
-            echo "Sucesso: cache limpo. Todos os visitantes verão dados atualizados."
+            echo "Sucesso: cache limpo. Todos verão dados atualizados."
           else
-            echo "Aviso: verifique REFRESH_TOKEN no Render e URL/TOKEN nos Secrets do GitHub."
+            echo "::warning::Falhou. Verifique: (1) REFRESH_TOKEN no Render = REFRESH_TOKEN no GitHub (2) URL correta"
+            exit 1
           fi
