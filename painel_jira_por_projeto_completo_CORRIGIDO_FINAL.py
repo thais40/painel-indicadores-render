@@ -8,7 +8,7 @@ Classificação de Rotinas Manuais (TDS) 100% por campos do Jira:
   - Data base: mês de resolved
   - Manual x Encomendas TDS por "Assunto Relacionado" (customfield_13747; fallback 13712).
 
-Mantém cache de dados (st.cache_data) e botão de Atualizar — não refaz fetch a cada filtro.
+Cache compartilhado (st.cache_data): quando alguém clica Atualizar, todos os usuários veem os dados novos.
 Necessário EMAIL e TOKEN em st.secrets.
 """
 
@@ -117,10 +117,8 @@ if "last_update" not in st.session_state:
 st.markdown('<div class="update-row">', unsafe_allow_html=True)
 if st.button("🔄 Atualizar dados"):
     st.session_state["last_update"] = now_br_str()
-    # limpa cache em memória (session_state) para forçar nova busca no Jira
-    for k in ["df_TDS","df_INT","df_TINE","df_INTEL"]:
-        if k in st.session_state:
-            del st.session_state[k]
+    # Limpa cache COMPARTILHADO — todos os usuários verão dados atualizados no próximo carregamento
+    st.cache_data.clear()
     st.rerun()
 st.markdown(
     f'<span class="update-caption">🕒 Última atualização: {st.session_state["last_update"]} (BRT)</span>',
@@ -250,7 +248,12 @@ def _jira_search_jql(jql: str, next_page_token: Optional[str] = None, max_result
     return resp.json()
 
 
-def buscar_issues(projeto: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
+@st.cache_data(ttl=3600)  # Cache compartilhado entre todos os usuários (1h); Update limpa via clear()
+def buscar_issues_cached(projeto: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
+    return _buscar_issues_impl(projeto, jql, max_pages)
+
+
+def _buscar_issues_impl(projeto: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
     todos, last_error = [], None
     next_token, page = None, 0
     while True:
@@ -1197,13 +1200,8 @@ JQL_TINE = jql_projeto("TINE", ano_global, mes_global)
 JQL_INTEL = jql_projeto("INTEL", ano_global, mes_global)
 
 def _get_or_fetch(proj: str, jql: str):
-    key = f"df_{proj}"
-    if key in st.session_state and isinstance(st.session_state.get(key), pd.DataFrame):
-        return st.session_state[key]
     with st.spinner(f"Carregando {proj}..."):
-        dfp = buscar_issues(proj, jql)
-    st.session_state[key] = dfp
-    return dfp
+        return buscar_issues_cached(proj, jql)
 
 df_tds   = _get_or_fetch("TDS",   JQL_TDS)
 df_int   = _get_or_fetch("INT",   JQL_INT)
