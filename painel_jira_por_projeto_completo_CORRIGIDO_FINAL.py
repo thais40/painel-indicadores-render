@@ -50,6 +50,18 @@ auth = HTTPBasicAuth(EMAIL, TOKEN)
 TZ_BR = ZoneInfo("America/Sao_Paulo")
 DATA_INICIO = "2024-09-01"
 
+# Token para atualização automática via URL (cron-job.org etc.): ?refresh=SEU_TOKEN
+try:
+    _rt = st.secrets.get("REFRESH_TOKEN", "")
+except Exception:
+    _rt = ""
+REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "") or _rt
+qp = st.query_params
+if REFRESH_TOKEN and qp.get("refresh") == REFRESH_TOKEN:
+    st.cache_data.clear()
+    st.query_params.clear()
+    st.rerun()
+
 # ================= Campos / Constantes =====================
 SLA_CAMPOS = {
     "TDS": "customfield_13744",

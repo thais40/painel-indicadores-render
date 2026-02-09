@@ -16,3 +16,5 @@ services:
         sync: false  # Configure no Dashboard do Render
       - key: TOKEN
         sync: false  # Configure no Dashboard do Render
+      - key: REFRESH_TOKEN
+        sync: false  # Token secreto para ?refresh=TOKEN (atualização automática via cron)
