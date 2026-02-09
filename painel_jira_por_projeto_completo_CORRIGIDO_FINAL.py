@@ -18,7 +18,7 @@ import os
 import re
 import unicodedata
 from datetime import datetime, date
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -260,6 +260,15 @@ def _jira_search_jql(jql: str, next_page_token: Optional[str] = None, max_result
     return resp.json()
 
 
+# Callback opcional para atualizar progresso (evita 502: envia resposta ao browser durante a busca)
+_progress_cb: Optional[Callable[[int, int], None]] = None
+
+
+def _set_progress_cb(cb):
+    global _progress_cb
+    _progress_cb = cb
+
+
 @st.cache_data  # Cache compartilhado — só atualiza quando alguém clica em "Atualizar Dados"
 def buscar_issues_cached(projeto: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
     return _buscar_issues_impl(projeto, jql, max_pages)
@@ -271,6 +280,11 @@ def _buscar_issues_impl(projeto: str, jql: str, max_pages: int = 500) -> pd.Data
     while True:
         page += 1
         data = _jira_search_jql(jql, next_page_token=next_token, max_results=100)
+        if _progress_cb and page % 2 == 0:
+            try:
+                _progress_cb(page, len(todos))
+            except Exception:
+                pass
         if "error" in data and data["error"]:
             last_error = data["error"]
             break
@@ -1211,14 +1225,27 @@ JQL_INT = jql_projeto("INT", ano_global, mes_global)
 JQL_TINE = jql_projeto("TINE", ano_global, mes_global)
 JQL_INTEL = jql_projeto("INTEL", ano_global, mes_global)
 
-def _get_or_fetch(proj: str, jql: str):
+def _get_or_fetch(proj: str, jql: str, progress_bar=None, project_idx: int = 0, total_projects: int = 4):
+    if progress_bar is not None:
+        def _cb(page: int, n_issues: int):
+            base = project_idx / total_projects
+            incr = (1.0 / total_projects) * min(1.0, page / 100.0)
+            progress_bar.progress(base + incr)
+        _set_progress_cb(_cb)
+    else:
+        _set_progress_cb(None)
     with st.spinner(f"Carregando {proj}..."):
         return buscar_issues_cached(proj, jql)
 
-df_tds   = _get_or_fetch("TDS",   JQL_TDS)
-df_int   = _get_or_fetch("INT",   JQL_INT)
-df_tine  = _get_or_fetch("TINE",  JQL_TINE)
-df_intel = _get_or_fetch("INTEL", JQL_INTEL)
+progress_bar = st.progress(0.0, text="Conectando ao Jira...")
+df_tds   = _get_or_fetch("TDS",   JQL_TDS, progress_bar, 0, 4)
+progress_bar.progress(0.25, text="TDS carregado. Carregando INT...")
+df_int   = _get_or_fetch("INT",   JQL_INT, progress_bar, 1, 4)
+progress_bar.progress(0.5, text="INT carregado. Carregando TINE...")
+df_tine  = _get_or_fetch("TINE",  JQL_TINE, progress_bar, 2, 4)
+progress_bar.progress(0.75, text="TINE carregado. Carregando INTEL...")
+df_intel = _get_or_fetch("INTEL", JQL_INTEL, progress_bar, 3, 4)
+progress_bar.empty()
 
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
     st.warning("Sem dados do Jira em nenhum projeto (verifique credenciais e permissões).")
