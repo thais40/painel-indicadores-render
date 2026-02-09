@@ -9,8 +9,28 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - name: Acordar painel e limpar cache
         run: |
-          curl -s -o /dev/null -w "%{http_code}" \
-            "${{ secrets.RENDER_PANEL_URL }}?refresh=${{ secrets.REFRESH_TOKEN }}"
+          echo "Aguardando Render acordar (pode levar até 90s no free tier)..."
+          URL="${{ secrets.RENDER_PANEL_URL }}"
+          TOKEN="${{ secrets.REFRESH_TOKEN }}"
+          if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
+            echo "Erro: configure REFRESH_TOKEN e RENDER_PANEL_URL nos Secrets do GitHub"
+            exit 1
+          fi
+          # 1ª tentativa: acordar o Render
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 120 "${URL}?refresh=${TOKEN}" || echo "000")
+          echo "HTTP Status (1ª tentativa): $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Aguardando 15s e tentando novamente..."
+            sleep 15
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 120 "${URL}?refresh=${TOKEN}" || echo "000")
+            echo "HTTP Status (2ª tentativa): $CODE"
+          fi
+          if [ "$CODE" = "200" ]; then
+            echo "Sucesso: cache limpo. Todos os visitantes verão dados atualizados."
+          else
+            echo "Aviso: verifique REFRESH_TOKEN no Render e URL/TOKEN nos Secrets do GitHub."
+          fi
