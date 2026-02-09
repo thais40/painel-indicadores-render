@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: painel-indicadores-jira
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run painel_jira_por_projeto_completo_CORRIGIDO_FINAL.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: EMAIL
+        sync: false  # Configure no Dashboard do Render
+      - key: TOKEN
+        sync: false  # Configure no Dashboard do Render
