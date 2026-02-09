@@ -4,8 +4,8 @@ services:
     env: python
     region: oregon
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run painel_jira_por_projeto_completo_CORRIGIDO_FINAL.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python -m streamlit run painel_jira_por_projeto_completo_CORRIGIDO_FINAL.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
     autoDeploy: true
     envVars:
       - key: PORT
