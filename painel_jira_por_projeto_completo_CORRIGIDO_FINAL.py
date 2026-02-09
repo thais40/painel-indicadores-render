@@ -248,7 +248,7 @@ def _jira_search_jql(jql: str, next_page_token: Optional[str] = None, max_result
     return resp.json()
 
 
-@st.cache_data(ttl=3600)  # Cache compartilhado entre todos os usuários (1h); Update limpa via clear()
+@st.cache_data  # Cache compartilhado — só atualiza quando alguém clica em "Atualizar Dados"
 def buscar_issues_cached(projeto: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
     return _buscar_issues_impl(projeto, jql, max_pages)
 
