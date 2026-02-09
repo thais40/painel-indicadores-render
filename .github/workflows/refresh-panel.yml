@@ -28,12 +28,20 @@ jobs:
             CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 120 "$FULL_URL" || echo "000")
             echo "Tentativa $i - HTTP Status: $CODE"
             
-            case "$CODE" in
-              200|301|302|307|308) echo "Sucesso: cache limpo."; exit 0 ;;
-              502|503|504|000) echo "Aguardando 25s (Render acordando)..."; sleep 25 ;;
-              *) echo "::warning::Status $CODE - Verifique REFRESH_TOKEN no Render e URL nos Secrets"; exit 1 ;;
-            esac
+            if [ "$CODE" = "000" ]; then
+              echo "Timeout ou sem conexão. Aguardando 25s..."
+              sleep 25
+            elif [ "$CODE" -ge 200 ] 2>/dev/null && [ "$CODE" -lt 400 ] 2>/dev/null; then
+              echo "Sucesso: cache limpo (status $CODE)."
+              exit 0
+            elif [ "$CODE" -ge 500 ] 2>/dev/null && [ "$CODE" -le 599 ] 2>/dev/null; then
+              echo "Servidor ocupado (5xx). Aguardando 25s..."
+              sleep 25
+            else
+              echo "::warning::Status $CODE. Confira REFRESH_TOKEN no Render = GitHub e RENDER_PANEL_URL (sem barra no final)."
+              exit 1
+            fi
           done
           
-          echo "::warning::Painel não respondeu após 3 tentativas."
+          echo "::warning::Painel não respondeu após 3 tentativas. Pode estar dormindo no Render."
           exit 1
