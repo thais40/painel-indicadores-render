@@ -1,0 +1,4 @@
+# Mantém a conexão WebSocket viva durante atualizações longas (evita 502 no Render).
+# O proxy do Render permite até ~100 min; o padrão do Streamlit (~30 s) fechava a conexão.
+[server]
+websocketPingInterval = 900

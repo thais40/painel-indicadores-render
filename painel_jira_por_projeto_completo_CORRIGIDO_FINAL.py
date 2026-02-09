@@ -125,11 +125,13 @@ def now_br_str() -> str:
 _render_head()
 if "last_update" not in st.session_state:
     st.session_state["last_update"] = now_br_str()
+if "update_step" not in st.session_state:
+    st.session_state["update_step"] = None  # None = normal; 0..3 = atualizando por etapas (evita 502 no Render)
 
 st.markdown('<div class="update-row">', unsafe_allow_html=True)
 if st.button("🔄 Atualizar dados"):
     st.session_state["last_update"] = now_br_str()
-    # Limpa cache COMPARTILHADO — todos os usuários verão dados atualizados no próximo carregamento
+    st.session_state["update_step"] = 0  # inicia atualização por etapas (1 projeto por requisição)
     st.cache_data.clear()
     st.rerun()
 st.markdown(
@@ -277,10 +279,15 @@ def buscar_issues_cached(projeto: str, jql: str, max_pages: int = 500) -> pd.Dat
 def _buscar_issues_impl(projeto: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
     todos, last_error = [], None
     next_token, page = None, 0
+    if _progress_cb:
+        try:
+            _progress_cb(0, 0)
+        except Exception:
+            pass
     while True:
         page += 1
         data = _jira_search_jql(jql, next_page_token=next_token, max_results=100)
-        if _progress_cb and page % 2 == 0:
+        if _progress_cb:
             try:
                 _progress_cb(page, len(todos))
             except Exception:
@@ -1237,6 +1244,22 @@ def _get_or_fetch(proj: str, jql: str, progress_bar=None, project_idx: int = 0, 
     with st.spinner(f"Carregando {proj}..."):
         return buscar_issues_cached(proj, jql)
 
+# Atualização por etapas: 1 projeto por requisição para evitar 502 no Render (timeout)
+update_step = st.session_state.get("update_step")
+JQL_MAP = {"TDS": JQL_TDS, "INT": JQL_INT, "TINE": JQL_TINE, "INTEL": JQL_INTEL}
+
+if update_step is not None and update_step < len(PROJETOS):
+    proj = PROJETOS[update_step]
+    st.caption("⏳ Atualização por etapas (evita timeout). Mantenha a aba aberta.")
+    with st.spinner(f"Atualizando {update_step + 1}/{len(PROJETOS)}: {TITULOS[proj]}..."):
+        buscar_issues_cached(proj, JQL_MAP[proj])
+    st.session_state["update_step"] = update_step + 1
+    st.rerun()
+
+if update_step is not None:
+    st.session_state["update_step"] = None
+
+st.caption("⏳ Carregando dados do Jira...")
 progress_bar = st.progress(0.0, text="Conectando ao Jira...")
 df_tds   = _get_or_fetch("TDS",   JQL_TDS, progress_bar, 0, 4)
 progress_bar.progress(0.25, text="TDS carregado. Carregando INT...")

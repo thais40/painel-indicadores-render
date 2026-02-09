@@ -27,3 +27,10 @@ O painel é atualizado automaticamente todo dia às **7:00** (horário de Brasí
    - `RENDER_PANEL_URL` = URL do painel (ex.: `https://painel-indicadores-jira.onrender.com`)
 
 Veja detalhes em [CONFIGURAR_REFRESH_7H.md](CONFIGURAR_REFRESH_7H.md).
+
+## Atualizar dados no Render (evitando 502)
+
+- **Timeout no Render:** o proxy do Render permite requisições de até **100 minutos**. O que costuma causar 502 é o **WebSocket do Streamlit** fechar por inatividade (padrão ~30 s). Por isso o projeto usa `.streamlit/config.toml` com `websocketPingInterval = 900` (15 minutos), para manter a conexão viva durante atualizações longas.
+- **Atualização por etapas:** o botão **"Atualizar dados"** atualiza um projeto por vez (TDS → INT → TINE → INTEL), com nova requisição a cada etapa, reduzindo ainda mais o risco de timeout.
+
+**Em uma emergência:** clique em "Atualizar dados" e mantenha a aba aberta. Se ainda assim der 502 (por exemplo no TDS), rode o painel **localmente** e atualize aí.
