@@ -50,6 +50,10 @@ auth = HTTPBasicAuth(EMAIL, TOKEN)
 TZ_BR = ZoneInfo("America/Sao_Paulo")
 DATA_INICIO = "2024-09-01"
 
+# No Render a requisição não pode demorar muito (timeout). TDS limitado aqui; local = 100k.
+IS_RENDER = bool(os.environ.get("PORT"))
+TDS_MAX_PAGES = 300 if IS_RENDER else 1000  # Render: ~30k issues; local: 100k
+
 # Token para atualização automática via URL (cron-job.org etc.): ?refresh=SEU_TOKEN
 try:
     _rt = st.secrets.get("REFRESH_TOKEN", "")
@@ -125,9 +129,12 @@ def now_br_str() -> str:
 _render_head()
 if "last_update" not in st.session_state:
     st.session_state["last_update"] = now_br_str()
+if "update_step" not in st.session_state:
+    st.session_state["update_step"] = None
 st.markdown('<div class="update-row">', unsafe_allow_html=True)
 if st.button("🔄 Atualizar dados"):
     st.session_state["last_update"] = now_br_str()
+    st.session_state["update_step"] = 0
     st.cache_data.clear()
     st.rerun()
 st.markdown(
@@ -1214,17 +1221,29 @@ def _get_or_fetch(proj: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
     with st.spinner(f"Carregando {proj}..."):
         return buscar_issues_cached(proj, jql, max_pages=max_pages)
 
-# TDS: até 1000 páginas = 100.000 issues; demais projetos: 500 páginas
-TDS_MAX_PAGES = 1000
+# Ordem na atualização por etapas (1 projeto por requisição = não trava no Render)
+PROJETOS_CARGA = ["INT", "TINE", "INTEL", "TDS"]
 
-st.caption("⏳ Carregando dados do Jira (INT → TINE → INTEL → TDS). TDS por último pois tem mais issues.")
+update_step = st.session_state.get("update_step")
+if update_step is not None and update_step < len(PROJETOS_CARGA):
+    proj = PROJETOS_CARGA[update_step]
+    max_p = TDS_MAX_PAGES if proj == "TDS" else 500
+    st.caption("⏳ Atualização por etapas — mantenha a aba aberta.")
+    with st.spinner(f"Atualizando {update_step + 1}/4: {TITULOS[proj]}..."):
+        buscar_issues_cached(proj, {"TDS": JQL_TDS, "INT": JQL_INT, "TINE": JQL_TINE, "INTEL": JQL_INTEL}[proj], max_pages=max_p)
+    st.session_state["update_step"] = update_step + 1
+    st.rerun()
+if update_step is not None:
+    st.session_state["update_step"] = None
+
+st.caption("⏳ Carregando dados do Jira (INT → TINE → INTEL → TDS)." + (" No Render, TDS limitado a ~30k issues." if IS_RENDER else ""))
 progress_bar = st.progress(0.0, text="Conectando ao Jira...")
 df_int   = _get_or_fetch("INT",   JQL_INT)
 progress_bar.progress(0.25, text="INT carregado. Carregando TINE...")
 df_tine  = _get_or_fetch("TINE",  JQL_TINE)
 progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
 df_intel = _get_or_fetch("INTEL", JQL_INTEL)
-progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS (até 100k issues)...")
+progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS...")
 df_tds   = _get_or_fetch("TDS",   JQL_TDS, max_pages=TDS_MAX_PAGES)
 progress_bar.empty()
 
