@@ -50,9 +50,11 @@ auth = HTTPBasicAuth(EMAIL, TOKEN)
 TZ_BR = ZoneInfo("America/Sao_Paulo")
 DATA_INICIO = "2024-09-01"
 
-# No Render a requisição não pode demorar muito (timeout). TDS limitado aqui; local = 100k.
+# No Render a requisição não pode demorar muito (timeout).
 IS_RENDER = bool(os.environ.get("PORT"))
-TDS_MAX_PAGES = 300 if IS_RENDER else 1000  # Render: ~30k issues; local: 100k
+TDS_MAX_PAGES = 300 if IS_RENDER else 1000  # quando buscar "tudo de uma vez"
+# Por mês (busca cirúrgica): poucos issues por requisição, ideal para Render
+MAX_PAGES_POR_MES = 100  # 10k issues/mês/projeto é suficiente
 
 # Token para atualização automática via URL (cron-job.org etc.): ?refresh=SEU_TOKEN
 try:
@@ -1217,35 +1219,74 @@ JQL_INT = jql_projeto("INT", ano_global, mes_global)
 JQL_TINE = jql_projeto("TINE", ano_global, mes_global)
 JQL_INTEL = jql_projeto("INTEL", ano_global, mes_global)
 
+
+def _meses_do_painel() -> List[tuple]:
+    """De DATA_INICIO até (ano atual, mês atual). Dados históricos = estáticos; só mês atual varia."""
+    p = DATA_INICIO.split("-")
+    y, m = int(p[0]), int(p[1])
+    fim = date.today()
+    out = []
+    while (y, m) <= (fim.year, fim.month):
+        out.append((y, m))
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    return out
+
+
 def _get_or_fetch(proj: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
     with st.spinner(f"Carregando {proj}..."):
         return buscar_issues_cached(proj, jql, max_pages=max_pages)
 
 # Ordem na atualização por etapas (1 projeto por requisição = não trava no Render)
 PROJETOS_CARGA = ["INT", "TINE", "INTEL", "TDS"]
+MESES_PAINEL = _meses_do_painel()
+USAR_BUSCA_POR_MES = (ano_global == "Todos" and mes_global == "Todos")
 
 update_step = st.session_state.get("update_step")
-if update_step is not None and update_step < len(PROJETOS_CARGA):
-    proj = PROJETOS_CARGA[update_step]
-    max_p = TDS_MAX_PAGES if proj == "TDS" else 500
-    st.caption("⏳ Atualização por etapas — mantenha a aba aberta.")
-    with st.spinner(f"Atualizando {update_step + 1}/4: {TITULOS[proj]}..."):
-        buscar_issues_cached(proj, {"TDS": JQL_TDS, "INT": JQL_INT, "TINE": JQL_TINE, "INTEL": JQL_INTEL}[proj], max_pages=max_p)
-    st.session_state["update_step"] = update_step + 1
-    st.rerun()
-if update_step is not None:
-    st.session_state["update_step"] = None
 
-st.caption("⏳ Carregando dados do Jira (INT → TINE → INTEL → TDS)." + (" No Render, TDS limitado a ~30k issues." if IS_RENDER else ""))
-progress_bar = st.progress(0.0, text="Conectando ao Jira...")
-df_int   = _get_or_fetch("INT",   JQL_INT)
-progress_bar.progress(0.25, text="INT carregado. Carregando TINE...")
-df_tine  = _get_or_fetch("TINE",  JQL_TINE)
-progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
-df_intel = _get_or_fetch("INTEL", JQL_INTEL)
-progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS...")
-df_tds   = _get_or_fetch("TDS",   JQL_TDS, max_pages=TDS_MAX_PAGES)
-progress_bar.empty()
+# Modo "Todos": dados mês a mês (histórico estático; cada mês = requisição pequena)
+if USAR_BUSCA_POR_MES:
+    if update_step is not None and update_step < len(PROJETOS_CARGA):
+        proj = PROJETOS_CARGA[update_step]
+        st.caption("⏳ Carregando por mês (requisições pequenas) — mantenha a aba aberta.")
+        with st.spinner(f"Carregando {update_step + 1}/4: {TITULOS[proj]} ({len(MESES_PAINEL)} meses)..."):
+            for (y, m) in MESES_PAINEL:
+                jql_mes = jql_projeto(proj, str(y), f"{m:02d}")
+                buscar_issues_cached(proj, jql_mes, max_pages=MAX_PAGES_POR_MES)
+        st.session_state["update_step"] = update_step + 1
+        st.rerun()
+    if update_step is not None:
+        st.session_state["update_step"] = None
+
+    st.caption("⏳ Montando dados (cache por mês): INT → TINE → INTEL → TDS. Primeira vez em 'Todos'? Clique em **Atualizar dados** para carregar por etapas.")
+    progress_bar = st.progress(0.0, text="Montando INT...")
+    dfs_int = [buscar_issues_cached("INT", jql_projeto("INT", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
+    df_int = pd.concat([d for d in dfs_int if not d.empty], ignore_index=True) if dfs_int else pd.DataFrame()
+    progress_bar.progress(0.25, text="Montando TINE...")
+    dfs_tine = [buscar_issues_cached("TINE", jql_projeto("TINE", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
+    df_tine = pd.concat([d for d in dfs_tine if not d.empty], ignore_index=True) if dfs_tine else pd.DataFrame()
+    progress_bar.progress(0.5, text="Montando INTEL...")
+    dfs_intel = [buscar_issues_cached("INTEL", jql_projeto("INTEL", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
+    df_intel = pd.concat([d for d in dfs_intel if not d.empty], ignore_index=True) if dfs_intel else pd.DataFrame()
+    progress_bar.progress(0.75, text="Montando TDS...")
+    dfs_tds = [buscar_issues_cached("TDS", jql_projeto("TDS", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
+    df_tds = pd.concat([d for d in dfs_tds if not d.empty], ignore_index=True) if dfs_tds else pd.DataFrame()
+    progress_bar.empty()
+else:
+    # Mês específico: 4 requisições pequenas (só aquele mês)
+    if update_step is not None:
+        st.session_state["update_step"] = None
+    st.caption("⏳ Carregando dados do Jira (mês selecionado).")
+    progress_bar = st.progress(0.0, text="Conectando ao Jira...")
+    df_int   = _get_or_fetch("INT",   JQL_INT)
+    progress_bar.progress(0.25, text="INT carregado. Carregando TINE...")
+    df_tine  = _get_or_fetch("TINE",  JQL_TINE)
+    progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
+    df_intel = _get_or_fetch("INTEL", JQL_INTEL)
+    progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS...")
+    df_tds   = _get_or_fetch("TDS",   JQL_TDS, max_pages=TDS_MAX_PAGES)
+    progress_bar.empty()
 
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
     st.warning("Sem dados do Jira em nenhum projeto (verifique credenciais e permissões).")
