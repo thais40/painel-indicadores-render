@@ -1273,13 +1273,14 @@ if use_limited_tds:
 st.caption("⏳ Carregando dados do Jira...")
 progress_bar = st.progress(0.0, text="Conectando ao Jira...")
 tds_max = TDS_MAX_PAGES_UPDATE if st.session_state.pop("_tds_limited_this_run", False) else 500
-df_tds   = _get_or_fetch("TDS",   JQL_TDS, progress_bar, 0, 4, max_pages=tds_max)
-progress_bar.progress(0.25, text="TDS carregado. Carregando INT...")
-df_int   = _get_or_fetch("INT",   JQL_INT, progress_bar, 1, 4)
-progress_bar.progress(0.5, text="INT carregado. Carregando TINE...")
-df_tine  = _get_or_fetch("TINE",  JQL_TINE, progress_bar, 2, 4)
-progress_bar.progress(0.75, text="TINE carregado. Carregando INTEL...")
-df_intel = _get_or_fetch("INTEL", JQL_INTEL, progress_bar, 3, 4)
+# Mesma ordem da atualização por etapas: INT, TINE, INTEL, TDS (TDS por último para não travar)
+df_int   = _get_or_fetch("INT",   JQL_INT, progress_bar, 0, 4)
+progress_bar.progress(0.25, text="INT carregado. Carregando TINE...")
+df_tine  = _get_or_fetch("TINE",  JQL_TINE, progress_bar, 1, 4)
+progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
+df_intel = _get_or_fetch("INTEL", JQL_INTEL, progress_bar, 2, 4)
+progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS...")
+df_tds   = _get_or_fetch("TDS",   JQL_TDS, progress_bar, 3, 4, max_pages=tds_max)
 progress_bar.empty()
 
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
