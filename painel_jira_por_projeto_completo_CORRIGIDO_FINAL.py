@@ -1210,9 +1210,12 @@ JQL_INT = jql_projeto("INT", ano_global, mes_global)
 JQL_TINE = jql_projeto("TINE", ano_global, mes_global)
 JQL_INTEL = jql_projeto("INTEL", ano_global, mes_global)
 
-def _get_or_fetch(proj: str, jql: str) -> pd.DataFrame:
+def _get_or_fetch(proj: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
     with st.spinner(f"Carregando {proj}..."):
-        return buscar_issues_cached(proj, jql)
+        return buscar_issues_cached(proj, jql, max_pages=max_pages)
+
+# TDS: até 1000 páginas = 100.000 issues; demais projetos: 500 páginas
+TDS_MAX_PAGES = 1000
 
 st.caption("⏳ Carregando dados do Jira (INT → TINE → INTEL → TDS). TDS por último pois tem mais issues.")
 progress_bar = st.progress(0.0, text="Conectando ao Jira...")
@@ -1221,8 +1224,8 @@ progress_bar.progress(0.25, text="INT carregado. Carregando TINE...")
 df_tine  = _get_or_fetch("TINE",  JQL_TINE)
 progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
 df_intel = _get_or_fetch("INTEL", JQL_INTEL)
-progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS...")
-df_tds   = _get_or_fetch("TDS",   JQL_TDS)
+progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS (até 100k issues)...")
+df_tds   = _get_or_fetch("TDS",   JQL_TDS, max_pages=TDS_MAX_PAGES)
 progress_bar.empty()
 
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
