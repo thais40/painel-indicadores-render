@@ -86,6 +86,9 @@ CAMPO_ORIGEM = "customfield_13628"
 CAMPO_QTD_ENCOMENDAS = "customfield_13666"
 
 PROJETOS = ["TDS", "INT", "TINE", "INTEL"]
+# Ordem na atualização manual (Render): TDS por último e com limite de páginas para não travar
+PROJETOS_UPDATE_ORDER = ["INT", "TINE", "INTEL", "TDS"]
+TDS_MAX_PAGES_UPDATE = 40  # na atualização manual: ~4000 issues para TDS concluir em 1–2 min
 TITULOS = {"TDS": "Tech Support", "INT": "Integrations", "TINE": "IT Support NE", "INTEL": "Intelligence"}
 META_SLA = {"TDS": 98.00, "INT": 96.00, "TINE": 96.00, "INTEL": 96.00}
 ASSUNTO_ALVO_APPNE = "Problemas no App NE - App EN"
@@ -1232,7 +1235,7 @@ JQL_INT = jql_projeto("INT", ano_global, mes_global)
 JQL_TINE = jql_projeto("TINE", ano_global, mes_global)
 JQL_INTEL = jql_projeto("INTEL", ano_global, mes_global)
 
-def _get_or_fetch(proj: str, jql: str, progress_bar=None, project_idx: int = 0, total_projects: int = 4):
+def _get_or_fetch(proj: str, jql: str, progress_bar=None, project_idx: int = 0, total_projects: int = 4, max_pages: int = 500):
     if progress_bar is not None:
         def _cb(page: int, n_issues: int):
             base = project_idx / total_projects
@@ -1242,26 +1245,35 @@ def _get_or_fetch(proj: str, jql: str, progress_bar=None, project_idx: int = 0, 
     else:
         _set_progress_cb(None)
     with st.spinner(f"Carregando {proj}..."):
-        return buscar_issues_cached(proj, jql)
+        return buscar_issues_cached(proj, jql, max_pages=max_pages)
 
-# Atualização por etapas: 1 projeto por requisição para evitar 502 no Render (timeout)
+# Atualização por etapas: INT → TINE → INTEL → TDS (TDS por último e com limite de páginas para não travar)
 update_step = st.session_state.get("update_step")
 JQL_MAP = {"TDS": JQL_TDS, "INT": JQL_INT, "TINE": JQL_TINE, "INTEL": JQL_INTEL}
+n_update = len(PROJETOS_UPDATE_ORDER)
 
-if update_step is not None and update_step < len(PROJETOS):
-    proj = PROJETOS[update_step]
+if update_step is not None and update_step < n_update:
+    proj = PROJETOS_UPDATE_ORDER[update_step]
     st.caption("⏳ Atualização por etapas (evita timeout). Mantenha a aba aberta.")
-    with st.spinner(f"Atualizando {update_step + 1}/{len(PROJETOS)}: {TITULOS[proj]}..."):
-        buscar_issues_cached(proj, JQL_MAP[proj])
+    max_pages = TDS_MAX_PAGES_UPDATE if proj == "TDS" else 500
+    if proj == "TDS":
+        st.caption("TDS: limitado a ~4.000 issues nesta atualização (dados completos na atualização das 7h).")
+    with st.spinner(f"Atualizando {update_step + 1}/{n_update}: {TITULOS[proj]}..."):
+        buscar_issues_cached(proj, JQL_MAP[proj], max_pages=max_pages)
     st.session_state["update_step"] = update_step + 1
     st.rerun()
 
+# Após atualização por etapas, TDS foi buscado com limite de páginas; usar o mesmo ao carregar
+use_limited_tds = (update_step == n_update)
 if update_step is not None:
     st.session_state["update_step"] = None
+if use_limited_tds:
+    st.session_state["_tds_limited_this_run"] = True
 
 st.caption("⏳ Carregando dados do Jira...")
 progress_bar = st.progress(0.0, text="Conectando ao Jira...")
-df_tds   = _get_or_fetch("TDS",   JQL_TDS, progress_bar, 0, 4)
+tds_max = TDS_MAX_PAGES_UPDATE if st.session_state.pop("_tds_limited_this_run", False) else 500
+df_tds   = _get_or_fetch("TDS",   JQL_TDS, progress_bar, 0, 4, max_pages=tds_max)
 progress_bar.progress(0.25, text="TDS carregado. Carregando INT...")
 df_int   = _get_or_fetch("INT",   JQL_INT, progress_bar, 1, 4)
 progress_bar.progress(0.5, text="INT carregado. Carregando TINE...")
