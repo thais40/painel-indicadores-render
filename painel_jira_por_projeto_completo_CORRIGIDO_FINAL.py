@@ -1214,15 +1214,15 @@ def _get_or_fetch(proj: str, jql: str) -> pd.DataFrame:
     with st.spinner(f"Carregando {proj}..."):
         return buscar_issues_cached(proj, jql)
 
-st.caption("⏳ Carregando dados do Jira...")
+st.caption("⏳ Carregando dados do Jira (INT → TINE → INTEL → TDS). TDS por último pois tem mais issues.")
 progress_bar = st.progress(0.0, text="Conectando ao Jira...")
-df_tds   = _get_or_fetch("TDS",   JQL_TDS)
-progress_bar.progress(0.25, text="TDS carregado. Carregando INT...")
 df_int   = _get_or_fetch("INT",   JQL_INT)
-progress_bar.progress(0.5, text="INT carregado. Carregando TINE...")
+progress_bar.progress(0.25, text="INT carregado. Carregando TINE...")
 df_tine  = _get_or_fetch("TINE",  JQL_TINE)
-progress_bar.progress(0.75, text="TINE carregado. Carregando INTEL...")
+progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
 df_intel = _get_or_fetch("INTEL", JQL_INTEL)
+progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS...")
+df_tds   = _get_or_fetch("TDS",   JQL_TDS)
 progress_bar.empty()
 
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
