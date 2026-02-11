@@ -1170,13 +1170,19 @@ def render_rotinas_manuais(dfp: pd.DataFrame, ano_global: str, mes_global: str):
 
 st.markdown("### 🔍 Filtros Globais")
 ano_atual = date.today().year
+mes_atual = date.today().month
 opcoes_ano = ["Todos"] + [str(y) for y in range(2024, ano_atual + 1)]
 opcoes_mes = ["Todos"] + [f"{m:02d}" for m in range(1, 13)]
+# No Render: padrão = mês atual para a 1ª carga ser rápida (4 requisições). "Todos" exige Atualizar dados por etapas.
+idx_ano = len(opcoes_ano) - 1 if IS_RENDER else 0  # 0 = Todos; último = ano atual
+idx_mes = mes_atual if IS_RENDER else 0             # 0 = Todos; mes_atual = mês atual (ex.: 2 → "02")
 colA, colB = st.columns(2)
 with colA:
-    ano_global = st.selectbox("Ano (global)", opcoes_ano, index=0, key="ano_global")
+    ano_global = st.selectbox("Ano (global)", opcoes_ano, index=idx_ano, key="ano_global")
 with colB:
-    mes_global = st.selectbox("Mês (global)", opcoes_mes, index=0, key="mes_global")
+    mes_global = st.selectbox("Mês (global)", opcoes_mes, index=idx_mes, key="mes_global")
+if IS_RENDER:
+    st.caption("💡 Para ver **Todos** os meses: selecione Ano e Mês = Todos e clique em **Atualizar dados** (carrega por etapas).")
 
 # ================= Coleta de dados (CORRIGIDO) ========================
 
