@@ -1250,7 +1250,9 @@ def _get_or_fetch(proj: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
 
 # Ordem na atualização por etapas (1 projeto por requisição = não trava no Render)
 PROJETOS_CARGA = ["INT", "TINE", "INTEL", "TDS"]
-MESES_PAINEL = _meses_do_painel()
+_meses_full = _meses_do_painel()
+# No Render: "Todos" usa só os últimos 12 meses para cada etapa terminar no tempo
+MESES_PAINEL = _meses_full[-12:] if IS_RENDER else _meses_full
 USAR_BUSCA_POR_MES = (ano_global == "Todos" and mes_global == "Todos")
 
 update_step = st.session_state.get("update_step")
@@ -1278,7 +1280,7 @@ if USAR_BUSCA_POR_MES:
     if update_step is not None:
         st.session_state["update_step"] = None
 
-    st.caption("⏳ Montando dados (cache por mês): INT → TINE → INTEL → TDS. Primeira vez em 'Todos'? Clique em **Atualizar dados** para carregar por etapas.")
+    st.caption("⏳ Montando dados (cache por mês): INT → TINE → INTEL → TDS." + (" No Render: últimos 12 meses." if IS_RENDER else "") + " Primeira vez em 'Todos'? Clique em **Atualizar dados** para carregar por etapas.")
     progress_bar = st.progress(0.0, text="Montando INT...")
     dfs_int = [buscar_issues_cached("INT", jql_projeto("INT", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
     df_int = pd.concat([d for d in dfs_int if not d.empty], ignore_index=True) if dfs_int else pd.DataFrame()
