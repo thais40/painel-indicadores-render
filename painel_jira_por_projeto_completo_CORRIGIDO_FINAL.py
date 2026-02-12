@@ -57,6 +57,8 @@ TDS_MAX_PAGES = 300 if IS_RENDER else 1000   # quando buscar "tudo de uma vez"
 TDS_MAX_PAGES_UM_MES_RENDER = 50
 # Por mês (busca cirúrgica): poucos issues por requisição, ideal para Render
 MAX_PAGES_POR_MES = 100  # 10k issues/mês/projeto é suficiente
+# TDS no modo "Todos" (por mês): no Render usar menos páginas por mês para a etapa terminar
+MAX_PAGES_POR_MES_TDS_RENDER = 20  # ~2k issues/mês; evita "Montando TDS" infinito
 
 # Token para atualização automática via URL (cron-job.org etc.): ?refresh=SEU_TOKEN
 try:
@@ -1255,13 +1257,18 @@ update_step = st.session_state.get("update_step")
 
 # Modo "Todos": dados mês a mês (histórico estático; cada mês = requisição pequena)
 if USAR_BUSCA_POR_MES:
+    # No Render: sempre carregar por etapas primeiro (evita "Montando TDS" com cache vazio = infinito)
+    if IS_RENDER and update_step is None:
+        st.session_state["update_step"] = 0
+        st.rerun()
     if update_step is not None and update_step < len(PROJETOS_CARGA):
         proj = PROJETOS_CARGA[update_step]
         st.caption("⏳ Carregando por mês (requisições pequenas) — mantenha a aba aberta.")
+        max_p_mes = MAX_PAGES_POR_MES_TDS_RENDER if (IS_RENDER and proj == "TDS") else MAX_PAGES_POR_MES
         with st.spinner(f"Carregando {update_step + 1}/4: {TITULOS[proj]} ({len(MESES_PAINEL)} meses)..."):
             for (y, m) in MESES_PAINEL:
                 jql_mes = jql_projeto(proj, str(y), f"{m:02d}")
-                buscar_issues_cached(proj, jql_mes, max_pages=MAX_PAGES_POR_MES)
+                buscar_issues_cached(proj, jql_mes, max_pages=max_p_mes)
         st.session_state["update_step"] = update_step + 1
         st.rerun()
     if update_step is not None:
@@ -1278,7 +1285,8 @@ if USAR_BUSCA_POR_MES:
     dfs_intel = [buscar_issues_cached("INTEL", jql_projeto("INTEL", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
     df_intel = pd.concat([d for d in dfs_intel if not d.empty], ignore_index=True) if dfs_intel else pd.DataFrame()
     progress_bar.progress(0.75, text="Montando TDS...")
-    dfs_tds = [buscar_issues_cached("TDS", jql_projeto("TDS", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
+    max_p_tds = MAX_PAGES_POR_MES_TDS_RENDER if IS_RENDER else MAX_PAGES_POR_MES
+    dfs_tds = [buscar_issues_cached("TDS", jql_projeto("TDS", str(y), f"{m:02d}"), max_pages=max_p_tds) for (y, m) in MESES_PAINEL]
     df_tds = pd.concat([d for d in dfs_tds if not d.empty], ignore_index=True) if dfs_tds else pd.DataFrame()
     progress_bar.empty()
 else:
