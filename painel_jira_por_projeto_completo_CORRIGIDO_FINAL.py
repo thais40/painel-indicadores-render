@@ -52,7 +52,9 @@ DATA_INICIO = "2024-09-01"
 
 # No Render a requisição não pode demorar muito (timeout).
 IS_RENDER = bool(os.environ.get("PORT"))
-TDS_MAX_PAGES = 300 if IS_RENDER else 1000  # quando buscar "tudo de uma vez"
+TDS_MAX_PAGES = 300 if IS_RENDER else 1000   # quando buscar "tudo de uma vez"
+# No Render, ao carregar 1 mês: TDS limitado para a requisição terminar (1 mês ≈ até 5k issues)
+TDS_MAX_PAGES_UM_MES_RENDER = 50
 # Por mês (busca cirúrgica): poucos issues por requisição, ideal para Render
 MAX_PAGES_POR_MES = 100  # 10k issues/mês/projeto é suficiente
 
@@ -1291,7 +1293,8 @@ else:
     progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
     df_intel = _get_or_fetch("INTEL", JQL_INTEL)
     progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS...")
-    df_tds   = _get_or_fetch("TDS",   JQL_TDS, max_pages=TDS_MAX_PAGES)
+    tds_pages = TDS_MAX_PAGES_UM_MES_RENDER if IS_RENDER else TDS_MAX_PAGES
+    df_tds   = _get_or_fetch("TDS",   JQL_TDS, max_pages=tds_pages)
     progress_bar.empty()
 
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
