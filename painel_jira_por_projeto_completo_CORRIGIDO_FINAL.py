@@ -1248,55 +1248,63 @@ def _get_or_fetch(proj: str, jql: str, max_pages: int = 500) -> pd.DataFrame:
     with st.spinner(f"Carregando {proj}..."):
         return buscar_issues_cached(proj, jql, max_pages=max_pages)
 
-# Ordem na atualização por etapas (1 projeto por requisição = não trava no Render)
-PROJETOS_CARGA = ["INT", "TINE", "INTEL", "TDS"]
+# Modo "Todos": histórico (meses anteriores) fixo no cache; só o mês atual é buscado a cada carga
 _meses_full = _meses_do_painel()
-# No Render: "Todos" usa só os últimos 12 meses para cada etapa terminar no tempo
-MESES_PAINEL = _meses_full[-12:] if IS_RENDER else _meses_full
-USAR_BUSCA_POR_MES = (ano_global == "Todos" and mes_global == "Todos")
+MESES_HISTORICO = _meses_full[:-1] if len(_meses_full) > 1 else []
+MES_ATUAL = _meses_full[-1] if _meses_full else (date.today().year, date.today().month)
+CHUNK_MESES = 4  # por etapa: 4 meses por vez para não estourar timeout
+PROJETOS_CARGA = ["INT", "TINE", "INTEL"] if IS_RENDER else ["INT", "TINE", "INTEL", "TDS"]
 
+# Chunks: (projeto, lista de (y,m)) — cada chunk = 4 meses de 1 projeto
+def _chunks_historico():
+    out = []
+    for proj in PROJETOS_CARGA:
+        for i in range(0, len(MESES_HISTORICO), CHUNK_MESES):
+            out.append((proj, MESES_HISTORICO[i : i + CHUNK_MESES]))
+    return out
+
+CHUNKS_HISTORICO = _chunks_historico()
+USAR_BUSCA_POR_MES = (ano_global == "Todos" and mes_global == "Todos")
 update_step = st.session_state.get("update_step")
 
-# Modo "Todos": dados mês a mês (histórico estático; cada mês = requisição pequena)
 if USAR_BUSCA_POR_MES:
-    # No Render: sempre carregar por etapas primeiro (evita "Montando TDS" com cache vazio = infinito)
-    if IS_RENDER and update_step is None:
+    if IS_RENDER and update_step is None and CHUNKS_HISTORICO:
         st.session_state["update_step"] = 0
         st.rerun()
-    if update_step is not None and update_step < len(PROJETOS_CARGA):
-        proj = PROJETOS_CARGA[update_step]
-        if IS_RENDER and proj == "TDS":
-            # No Render não buscamos TDS (sempre trava). Pula para a montagem.
-            st.session_state["update_step"] = len(PROJETOS_CARGA)
-            st.rerun()
-        st.caption("⏳ Carregando por mês (requisições pequenas) — mantenha a aba aberta.")
-        max_p_mes = MAX_PAGES_POR_MES_TDS_RENDER if (IS_RENDER and proj == "TDS") else MAX_PAGES_POR_MES
-        with st.spinner(f"Carregando {update_step + 1}/4: {TITULOS[proj]} ({len(MESES_PAINEL)} meses)..."):
-            for (y, m) in MESES_PAINEL:
+    if update_step is not None and update_step < len(CHUNKS_HISTORICO):
+        proj, meses_chunk = CHUNKS_HISTORICO[update_step]
+        max_p = MAX_PAGES_POR_MES_TDS_RENDER if (IS_RENDER and proj == "TDS") else MAX_PAGES_POR_MES
+        st.caption("⏳ Preenchendo histórico por etapas (fixo). Mantenha a aba aberta.")
+        with st.spinner(f"Histórico {update_step + 1}/{len(CHUNKS_HISTORICO)}: {TITULOS[proj]} ({len(meses_chunk)} meses)..."):
+            for (y, m) in meses_chunk:
                 jql_mes = jql_projeto(proj, str(y), f"{m:02d}")
-                buscar_issues_cached(proj, jql_mes, max_pages=max_p_mes)
+                buscar_issues_cached(proj, jql_mes, max_pages=max_p)
         st.session_state["update_step"] = update_step + 1
         st.rerun()
     if update_step is not None:
         st.session_state["update_step"] = None
 
-    st.caption("⏳ Montando dados (cache por mês): INT → TINE → INTEL → TDS." + (" No Render: últimos 12 meses." if IS_RENDER else "") + " Primeira vez em 'Todos'? Clique em **Atualizar dados** para carregar por etapas.")
+    # Montar: histórico do cache + mês atual do Jira (só o atual é atualizado)
+    st.caption("⏳ Histórico (cache) + mês atual (Jira). Todos os meses.")
     progress_bar = st.progress(0.0, text="Montando INT...")
-    dfs_int = [buscar_issues_cached("INT", jql_projeto("INT", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
-    df_int = pd.concat([d for d in dfs_int if not d.empty], ignore_index=True) if dfs_int else pd.DataFrame()
+    def _hist_mais_atual(proj: str, max_p: int):
+        dfs_hist = [buscar_issues_cached(proj, jql_projeto(proj, str(y), f"{m:02d}"), max_pages=max_p) for (y, m) in MESES_HISTORICO]
+        df_hist = pd.concat([d for d in dfs_hist if not d.empty], ignore_index=True) if dfs_hist else pd.DataFrame()
+        jql_atual = jql_projeto(proj, str(MES_ATUAL[0]), f"{MES_ATUAL[1]:02d}")
+        df_atual = buscar_issues_cached(proj, jql_atual, max_pages=max_p)
+        if df_hist.empty and df_atual.empty:
+            return pd.DataFrame()
+        return pd.concat([df_hist, df_atual], ignore_index=True) if not df_atual.empty else df_hist
+    df_int = _hist_mais_atual("INT", MAX_PAGES_POR_MES)
     progress_bar.progress(0.25, text="Montando TINE...")
-    dfs_tine = [buscar_issues_cached("TINE", jql_projeto("TINE", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
-    df_tine = pd.concat([d for d in dfs_tine if not d.empty], ignore_index=True) if dfs_tine else pd.DataFrame()
+    df_tine = _hist_mais_atual("TINE", MAX_PAGES_POR_MES)
     progress_bar.progress(0.5, text="Montando INTEL...")
-    dfs_intel = [buscar_issues_cached("INTEL", jql_projeto("INTEL", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
-    df_intel = pd.concat([d for d in dfs_intel if not d.empty], ignore_index=True) if dfs_intel else pd.DataFrame()
+    df_intel = _hist_mais_atual("INTEL", MAX_PAGES_POR_MES)
     progress_bar.progress(0.75, text="Montando TDS...")
     if IS_RENDER:
         df_tds = pd.DataFrame()
     else:
-        max_p_tds = MAX_PAGES_POR_MES_TDS_RENDER if IS_RENDER else MAX_PAGES_POR_MES
-        dfs_tds = [buscar_issues_cached("TDS", jql_projeto("TDS", str(y), f"{m:02d}"), max_pages=max_p_tds) for (y, m) in MESES_PAINEL]
-        df_tds = pd.concat([d for d in dfs_tds if not d.empty], ignore_index=True) if dfs_tds else pd.DataFrame()
+        df_tds = _hist_mais_atual("TDS", MAX_PAGES_POR_MES_TDS_RENDER)
     progress_bar.empty()
 else:
     # Mês específico: 4 requisições pequenas (só aquele mês)
