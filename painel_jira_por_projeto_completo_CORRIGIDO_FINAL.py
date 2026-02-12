@@ -1263,6 +1263,10 @@ if USAR_BUSCA_POR_MES:
         st.rerun()
     if update_step is not None and update_step < len(PROJETOS_CARGA):
         proj = PROJETOS_CARGA[update_step]
+        if IS_RENDER and proj == "TDS":
+            # No Render não buscamos TDS (sempre trava). Pula para a montagem.
+            st.session_state["update_step"] = len(PROJETOS_CARGA)
+            st.rerun()
         st.caption("⏳ Carregando por mês (requisições pequenas) — mantenha a aba aberta.")
         max_p_mes = MAX_PAGES_POR_MES_TDS_RENDER if (IS_RENDER and proj == "TDS") else MAX_PAGES_POR_MES
         with st.spinner(f"Carregando {update_step + 1}/4: {TITULOS[proj]} ({len(MESES_PAINEL)} meses)..."):
@@ -1285,9 +1289,12 @@ if USAR_BUSCA_POR_MES:
     dfs_intel = [buscar_issues_cached("INTEL", jql_projeto("INTEL", str(y), f"{m:02d}"), max_pages=MAX_PAGES_POR_MES) for (y, m) in MESES_PAINEL]
     df_intel = pd.concat([d for d in dfs_intel if not d.empty], ignore_index=True) if dfs_intel else pd.DataFrame()
     progress_bar.progress(0.75, text="Montando TDS...")
-    max_p_tds = MAX_PAGES_POR_MES_TDS_RENDER if IS_RENDER else MAX_PAGES_POR_MES
-    dfs_tds = [buscar_issues_cached("TDS", jql_projeto("TDS", str(y), f"{m:02d}"), max_pages=max_p_tds) for (y, m) in MESES_PAINEL]
-    df_tds = pd.concat([d for d in dfs_tds if not d.empty], ignore_index=True) if dfs_tds else pd.DataFrame()
+    if IS_RENDER:
+        df_tds = pd.DataFrame()
+    else:
+        max_p_tds = MAX_PAGES_POR_MES_TDS_RENDER if IS_RENDER else MAX_PAGES_POR_MES
+        dfs_tds = [buscar_issues_cached("TDS", jql_projeto("TDS", str(y), f"{m:02d}"), max_pages=max_p_tds) for (y, m) in MESES_PAINEL]
+        df_tds = pd.concat([d for d in dfs_tds if not d.empty], ignore_index=True) if dfs_tds else pd.DataFrame()
     progress_bar.empty()
 else:
     # Mês específico: 4 requisições pequenas (só aquele mês)
@@ -1300,14 +1307,18 @@ else:
     df_tine  = _get_or_fetch("TINE",  JQL_TINE)
     progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
     df_intel = _get_or_fetch("INTEL", JQL_INTEL)
-    progress_bar.progress(0.75, text="INTEL carregado. Carregando TDS...")
-    tds_pages = TDS_MAX_PAGES_UM_MES_RENDER if IS_RENDER else TDS_MAX_PAGES
-    df_tds   = _get_or_fetch("TDS",   JQL_TDS, max_pages=tds_pages)
+    progress_bar.progress(0.75, text="INTEL carregado.")
+    if IS_RENDER:
+        df_tds = pd.DataFrame()
+    else:
+        df_tds = _get_or_fetch("TDS", JQL_TDS, max_pages=TDS_MAX_PAGES)
     progress_bar.empty()
 
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
     st.warning("Sem dados do Jira em nenhum projeto (verifique credenciais e permissões).")
     st.stop()
+if IS_RENDER and df_tds.empty:
+    st.info("📌 **No Render, TDS (Tech Support) não é carregado** para evitar timeout. INT, TINE e INTEL estão disponíveis. Para ver TDS, rode o painel localmente.")
 
 _df_monthly_all = pd.concat(
     [build_monthly_tables(d) for d in [df_tds, df_int, df_tine, df_intel] if not d.empty],
@@ -1351,7 +1362,10 @@ for projeto, tab in zip(PROJETOS, tabs):
             opcoes = ["Geral", "Criados vs Resolvidos", "SLA", "Assunto Relacionado"]
 
         if dfp.empty:
-            st.info("Sem dados carregados para este projeto.")
+            if IS_RENDER and projeto == "TDS":
+                st.info("No Render, **TDS (Tech Support)** não é carregado para evitar timeout. Rode o painel localmente (`streamlit run painel_jira_por_projeto_completo_CORRIGIDO_FINAL.py`) para ver os dados de Tech Support.")
+            else:
+                st.info("Sem dados carregados para este projeto.")
             continue
 
         dfp["mes_created"] = pd.to_datetime(dfp["created"], errors="coerce")
