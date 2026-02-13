@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import unicodedata
 from datetime import datetime, date
 from typing import Dict, Any, Optional, List
@@ -57,8 +58,8 @@ TDS_MAX_PAGES = 300 if IS_RENDER else 1000   # quando buscar "tudo de uma vez"
 TDS_MAX_PAGES_UM_MES_RENDER = 50
 # Por mês (busca cirúrgica): poucos issues por requisição, ideal para Render
 MAX_PAGES_POR_MES = 100  # 10k issues/mês/projeto é suficiente
-# TDS no modo "Todos" (por mês): no Render usar menos páginas por mês para a etapa terminar
-MAX_PAGES_POR_MES_TDS_RENDER = 20  # ~2k issues/mês; evita "Montando TDS" infinito
+# TDS no modo "Todos" (por mês): no Render usar menos páginas para evitar 503
+MAX_PAGES_POR_MES_TDS_RENDER = 10  # ~1k issues/mês; reduz carga e chance de 503
 
 # Token para atualização automática via URL (cron-job.org etc.): ?refresh=SEU_TOKEN
 try:
@@ -269,13 +270,18 @@ def _jira_search_jql(jql: str, next_page_token: Optional[str] = None, max_result
     params = {"jql": jql, "fields": ",".join(FIELDS_ALL), "maxResults": max_results}
     if next_page_token:
         params["nextPageToken"] = next_page_token
-    try:
-        resp = requests.get(url, params=params, auth=auth, timeout=60)
-    except Exception as e:
-        return {"error": str(e), "issues": [], "isLast": True}
-    if resp.status_code != 200:
+    for tentativa in range(2):
+        try:
+            resp = requests.get(url, params=params, auth=auth, timeout=60)
+        except Exception as e:
+            return {"error": str(e), "issues": [], "isLast": True}
+        if resp.status_code == 200:
+            return resp.json()
+        if resp.status_code == 503 and tentativa == 0:
+            time.sleep(3)
+            continue
         return {"error": f"{resp.status_code}: {resp.text[:300]}", "issues": [], "isLast": True}
-    return resp.json()
+    return {"error": "503 após retry", "issues": [], "isLast": True}
 
 
 @st.cache_data  # Cache compartilhado — só atualiza quando alguém clica em "Atualizar Dados"
@@ -1334,7 +1340,7 @@ if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
     st.warning("Sem dados do Jira em nenhum projeto (verifique credenciais e permissões).")
     st.stop()
 if IS_RENDER and not df_tds.empty:
-    st.caption("📌 No Render, TDS está limitado a ~2k issues/mês (histórico + atual). Para dados completos, rode o painel localmente.")
+    st.caption("📌 No Render, TDS está limitado a ~1k issues/mês (evita 503). Para dados completos, rode o painel localmente.")
 
 _df_monthly_all = pd.concat(
     [build_monthly_tables(d) for d in [df_tds, df_int, df_tine, df_intel] if not d.empty],
