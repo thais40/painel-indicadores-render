@@ -138,11 +138,18 @@ if "last_update" not in st.session_state:
 if "update_step" not in st.session_state:
     st.session_state["update_step"] = None
 st.markdown('<div class="update-row">', unsafe_allow_html=True)
-if st.button("🔄 Atualizar dados"):
-    st.session_state["last_update"] = now_br_str()
-    st.session_state["update_step"] = 0
-    st.cache_data.clear()
-    st.rerun()
+col_btn1, col_btn2, _ = st.columns([1, 1, 2])
+with col_btn1:
+    if st.button("🔄 Atualizar dados"):
+        st.session_state["last_update"] = now_br_str()
+        # Não limpa cache: histórico permanece; só o mês atual é buscado de novo.
+        st.rerun()
+with col_btn2:
+    if st.button("🔄 Recarregar todo o histórico"):
+        st.session_state["last_update"] = now_br_str()
+        st.session_state["update_step"] = 0
+        st.cache_data.clear()
+        st.rerun()
 st.markdown(
     f'<span class="update-caption">🕒 Última atualização: {st.session_state["last_update"]} (BRT)</span>',
     unsafe_allow_html=True,
@@ -1253,7 +1260,8 @@ _meses_full = _meses_do_painel()
 MESES_HISTORICO = _meses_full[:-1] if len(_meses_full) > 1 else []
 MES_ATUAL = _meses_full[-1] if _meses_full else (date.today().year, date.today().month)
 CHUNK_MESES = 4  # por etapa: 4 meses por vez para não estourar timeout
-PROJETOS_CARGA = ["INT", "TINE", "INTEL"] if IS_RENDER else ["INT", "TINE", "INTEL", "TDS"]
+# Mesma estrutura para todos: histórico em chunks + mês atual. No Render, TDS usa menos páginas/mês.
+PROJETOS_CARGA = ["INT", "TINE", "INTEL", "TDS"]
 
 # Chunks: (projeto, lista de (y,m)) — cada chunk = 4 meses de 1 projeto
 def _chunks_historico():
@@ -1301,10 +1309,8 @@ if USAR_BUSCA_POR_MES:
     progress_bar.progress(0.5, text="Montando INTEL...")
     df_intel = _hist_mais_atual("INTEL", MAX_PAGES_POR_MES)
     progress_bar.progress(0.75, text="Montando TDS...")
-    if IS_RENDER:
-        df_tds = pd.DataFrame()
-    else:
-        df_tds = _hist_mais_atual("TDS", MAX_PAGES_POR_MES_TDS_RENDER)
+    max_p_tds = MAX_PAGES_POR_MES_TDS_RENDER if IS_RENDER else MAX_PAGES_POR_MES
+    df_tds = _hist_mais_atual("TDS", max_p_tds)
     progress_bar.empty()
 else:
     # Mês específico: 4 requisições pequenas (só aquele mês)
@@ -1327,8 +1333,8 @@ else:
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
     st.warning("Sem dados do Jira em nenhum projeto (verifique credenciais e permissões).")
     st.stop()
-if IS_RENDER and df_tds.empty:
-    st.info("📌 **No Render, TDS (Tech Support) não é carregado** para evitar timeout. INT, TINE e INTEL estão disponíveis. Para ver TDS, rode o painel localmente.")
+if IS_RENDER and not df_tds.empty:
+    st.caption("📌 No Render, TDS está limitado a ~2k issues/mês (histórico + atual). Para dados completos, rode o painel localmente.")
 
 _df_monthly_all = pd.concat(
     [build_monthly_tables(d) for d in [df_tds, df_int, df_tine, df_intel] if not d.empty],
@@ -1373,7 +1379,7 @@ for projeto, tab in zip(PROJETOS, tabs):
 
         if dfp.empty:
             if IS_RENDER and projeto == "TDS":
-                st.info("No Render, **TDS (Tech Support)** não é carregado para evitar timeout. Rode o painel localmente (`streamlit run painel_jira_por_projeto_completo_CORRIGIDO_FINAL.py`) para ver os dados de Tech Support.")
+                st.info("TDS ainda não carregado ou vazio. Use **Recarregar todo o histórico** (preenche por etapas) ou rode o painel localmente para dados completos.")
             else:
                 st.info("Sem dados carregados para este projeto.")
             continue
