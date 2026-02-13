@@ -59,7 +59,7 @@ TDS_MAX_PAGES_UM_MES_RENDER = 50
 # Por mês (busca cirúrgica): poucos issues por requisição, ideal para Render
 MAX_PAGES_POR_MES = 100  # 10k issues/mês/projeto é suficiente
 # TDS no modo "Todos" (por mês): no Render usar menos páginas para evitar 503
-MAX_PAGES_POR_MES_TDS_RENDER = 10  # ~1k issues/mês; reduz carga e chance de 503
+MAX_PAGES_POR_MES_TDS_RENDER = 40  # ~4k issues/mês no Render; evita 503
 
 # Token para atualização automática via URL (cron-job.org etc.): ?refresh=SEU_TOKEN
 try:
@@ -1340,7 +1340,7 @@ if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
     st.warning("Sem dados do Jira em nenhum projeto (verifique credenciais e permissões).")
     st.stop()
 if IS_RENDER and not df_tds.empty:
-    st.caption("📌 No Render, TDS está limitado a ~1k issues/mês (evita 503). Para dados completos, rode o painel localmente.")
+    st.caption("📌 No Render, TDS está limitado a ~4k issues/mês (evita 503). Para dados completos, rode o painel localmente.")
 
 _df_monthly_all = pd.concat(
     [build_monthly_tables(d) for d in [df_tds, df_int, df_tine, df_intel] if not d.empty],
