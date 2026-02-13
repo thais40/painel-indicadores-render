@@ -1329,9 +1329,9 @@ else:
     df_tine  = _get_or_fetch("TINE",  JQL_TINE)
     progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
     df_intel = _get_or_fetch("INTEL", JQL_INTEL)
-    progress_bar.progress(0.75, text="INTEL carregado.")
+    progress_bar.progress(0.75, text="Carregando TDS...")
     if IS_RENDER:
-        df_tds = pd.DataFrame()
+        df_tds = _get_or_fetch("TDS", JQL_TDS, max_pages=TDS_MAX_PAGES_UM_MES_RENDER)
     else:
         df_tds = _get_or_fetch("TDS", JQL_TDS, max_pages=TDS_MAX_PAGES)
     progress_bar.empty()
