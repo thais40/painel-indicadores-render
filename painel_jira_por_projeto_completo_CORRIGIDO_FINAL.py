@@ -143,7 +143,7 @@ col_btn1, col_btn2, _ = st.columns([1, 1, 2])
 with col_btn1:
     if st.button("🔄 Atualizar dados"):
         st.session_state["last_update"] = now_br_str()
-        # Não limpa cache: histórico permanece; só o mês atual é buscado de novo.
+        st.session_state["force_refresh"] = True  # força nova busca (incl. TDS) sem limpar histórico
         st.rerun()
 with col_btn2:
     if st.button("🔄 Recarregar todo o histórico"):
@@ -1280,6 +1280,7 @@ def _chunks_historico():
 CHUNKS_HISTORICO = _chunks_historico()
 USAR_BUSCA_POR_MES = (ano_global == "Todos" and mes_global == "Todos")
 update_step = st.session_state.get("update_step")
+force_refresh = st.session_state.pop("force_refresh", False)
 
 if USAR_BUSCA_POR_MES:
     if IS_RENDER and update_step is None and CHUNKS_HISTORICO:
@@ -1298,42 +1299,45 @@ if USAR_BUSCA_POR_MES:
     if update_step is not None:
         st.session_state["update_step"] = None
 
-    # Montar: histórico do cache + mês atual do Jira (só o atual é atualizado)
+    # Montar: histórico do cache + mês atual do Jira (atual é refetch quando "Atualizar dados")
     st.caption("⏳ Histórico (cache) + mês atual (Jira). Todos os meses.")
     progress_bar = st.progress(0.0, text="Montando INT...")
-    def _hist_mais_atual(proj: str, max_p: int):
+    def _hist_mais_atual(proj: str, max_p: int, refetch_atual: bool = False):
         dfs_hist = [buscar_issues_cached(proj, jql_projeto(proj, str(y), f"{m:02d}"), max_pages=max_p) for (y, m) in MESES_HISTORICO]
         df_hist = pd.concat([d for d in dfs_hist if not d.empty], ignore_index=True) if dfs_hist else pd.DataFrame()
         jql_atual = jql_projeto(proj, str(MES_ATUAL[0]), f"{MES_ATUAL[1]:02d}")
-        df_atual = buscar_issues_cached(proj, jql_atual, max_pages=max_p)
+        df_atual = _buscar_issues_impl(proj, jql_atual, max_p) if refetch_atual else buscar_issues_cached(proj, jql_atual, max_pages=max_p)
         if df_hist.empty and df_atual.empty:
             return pd.DataFrame()
         return pd.concat([df_hist, df_atual], ignore_index=True) if not df_atual.empty else df_hist
-    df_int = _hist_mais_atual("INT", MAX_PAGES_POR_MES)
+    df_int = _hist_mais_atual("INT", MAX_PAGES_POR_MES, refetch_atual=force_refresh)
     progress_bar.progress(0.25, text="Montando TINE...")
-    df_tine = _hist_mais_atual("TINE", MAX_PAGES_POR_MES)
+    df_tine = _hist_mais_atual("TINE", MAX_PAGES_POR_MES, refetch_atual=force_refresh)
     progress_bar.progress(0.5, text="Montando INTEL...")
-    df_intel = _hist_mais_atual("INTEL", MAX_PAGES_POR_MES)
+    df_intel = _hist_mais_atual("INTEL", MAX_PAGES_POR_MES, refetch_atual=force_refresh)
     progress_bar.progress(0.75, text="Montando TDS...")
     max_p_tds = MAX_PAGES_POR_MES_TDS_RENDER if IS_RENDER else MAX_PAGES_POR_MES
-    df_tds = _hist_mais_atual("TDS", max_p_tds)
+    df_tds = _hist_mais_atual("TDS", max_p_tds, refetch_atual=force_refresh)
     progress_bar.empty()
 else:
-    # Mês específico: 4 requisições pequenas (só aquele mês)
+    # Mês específico: 4 requisições (refetch quando "Atualizar dados" para todos, incl. TDS)
     if update_step is not None:
         st.session_state["update_step"] = None
     st.caption("⏳ Carregando dados do Jira (mês selecionado).")
     progress_bar = st.progress(0.0, text="Conectando ao Jira...")
-    df_int   = _get_or_fetch("INT",   JQL_INT)
+    def _fetch_mes(proj: str, jql: str, max_p: int):
+        with st.spinner(f"Carregando {proj}..."):
+            if force_refresh:
+                return _buscar_issues_impl(proj, jql, max_p)
+            return buscar_issues_cached(proj, jql, max_pages=max_p)
+    df_int   = _fetch_mes("INT",   JQL_INT, 500)
     progress_bar.progress(0.25, text="INT carregado. Carregando TINE...")
-    df_tine  = _get_or_fetch("TINE",  JQL_TINE)
+    df_tine  = _fetch_mes("TINE",  JQL_TINE, 500)
     progress_bar.progress(0.5, text="TINE carregado. Carregando INTEL...")
-    df_intel = _get_or_fetch("INTEL", JQL_INTEL)
+    df_intel = _fetch_mes("INTEL", JQL_INTEL, 500)
     progress_bar.progress(0.75, text="Carregando TDS...")
-    if IS_RENDER:
-        df_tds = _get_or_fetch("TDS", JQL_TDS, max_pages=TDS_MAX_PAGES_UM_MES_RENDER)
-    else:
-        df_tds = _get_or_fetch("TDS", JQL_TDS, max_pages=TDS_MAX_PAGES)
+    max_p_tds = TDS_MAX_PAGES_UM_MES_RENDER if IS_RENDER else TDS_MAX_PAGES
+    df_tds = _fetch_mes("TDS", JQL_TDS, max_p_tds)
     progress_bar.empty()
 
 if all(d.empty for d in [df_tds, df_int, df_tine, df_intel]):
